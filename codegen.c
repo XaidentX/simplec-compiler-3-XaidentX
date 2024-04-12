@@ -225,11 +225,66 @@ static void codegen_funclist(T_funclist funclist) {
 }
 
 static void codegen_func(T_func func) {
-  fprintf(stderr, "TODO: codegen_func (remove this message when implemented).");
+//  fprintf(stderr, "TODO: codegen_func (remove this message when implemented).");
+
+  // Create a new scope for the function.
+  current_offset_scope = create_offset_scope(current_offset_scope);
+
+  // Emit the pseudo ops for the functions definition.
+  fprintf(codegenout, ".text\n");
+  fprintf(codegenout, ".globl %s\n", func->ident);
+  fprintf(codegenout, ".type %s, @function\n", func->ident);
+
+  // Emit a label for the function.
+  fprintf(codegenout, "%s:\n", func->ident);
+
+  // Insert the parameter into the offset table.
+  insert_offset(current_offset_scope, func->paramlist->ident, 8);
+
+  // Add local declarations to the scope.
+  codegen_decllist(func->decllist);
+
+  // Emit the function prologue.
+  COMMENT("emit the function prologue");
+  emit_prologue(current_offset_scope->stack_size);
+
+  // Move the one parameter onto the stack.
+  COMMENT("move parameter onto the stack");
+  int offset = lookup_offset_in_scope(current_offset_scope, func->paramlist->ident);
+  MOV_TO_OFFSET("%rdi", offset);
+
+  // Generate code for the body of the function.
+  COMMENT("generate code for the body");
+  codegen_stmtlist(func->stmtlist);
+
+  // Generate code for the return expression.
+  COMMENT("generate code for the return expression");
+  codegen_expr(func->returnexpr);
+
+  COMMENT("save the return expression into %rax per the abi");
+  POP("%rax");
+
+  // Emit the epilogue
+  COMMENT("emit the epilogue");
+  emit_epilogue();
+
+  // Destroy the function's scope
+  current_offset_scope = destroy_offset_scope(current_offset_scope);
 }
 
 static void codegen_decllist(T_decllist decllist) {
-  fprintf(stderr, "TODO: codegen_decllist (remove this message when implemented).");
+
+//  fprintf(stderr, "TODO: codegen_decllist (remove this message when implemented).");
+
+  // Loop over each element in the decllist list.
+  while(decllist != NULL){
+
+    // Insert each element into the offset_scope.
+    insert_offset(current_offset_scope, decllist->decl->ident, 8);
+
+    decllist = decllist->tail;
+
+  }
 }
 
 /* statements */
@@ -256,26 +311,49 @@ static void codegen_stmt(T_stmt stmt) {
 }
 
 static void codegen_assignstmt(T_stmt stmt) {
-  fprintf(stderr, "TODO: codegen_assignstmt (remove this message when implemented).");
+//  fprintf(stderr, "TODO: codegen_assignstmt (remove this message when implemented).");
+
+  // Generate code for the right hand side of the assignment.
+  COMMENT("generate code for the right-hand side of the assignment");
+  codegen_expr(stmt->assignstmt.right);
+
+  // Pop it from the stack.
+  POP("%rax");
+
+  // Find the address of the left hand side of the assignment.
+  T_expr left_expr = stmt->assignstmt.left;
+
+  if (left_expr->kind == E_identexpr){
+
+    // Lookup the identifier to find its offset.
+    int offset = lookup_offset_in_scope(current_offset_scope, left_expr->identexpr);
+
+    // Move the register that holds the right hand side of the expression into the stack address.
+    MOV_TO_OFFSET("%rax", offset);
+  }
 }
 
 static void codegen_ifstmt(T_stmt stmt) {
   // pending project 4
-  fprintf(stderr, "TODO: codegen_ifstmt (project 4)\n");
+  //fprintf(stderr, "TODO: codegen_ifstmt (project 4)\n");
 }
 
 static void codegen_ifelsestmt(T_stmt stmt) {
   // pending project 4
-  fprintf(stderr, "TODO: codegen_ifelsestmt (project 4)\n");
+  //fprintf(stderr, "TODO: codegen_ifelsestmt (project 4)\n");
 }
 
 static void codegen_whilestmt(T_stmt stmt) {
   // pending project 4
-  fprintf(stderr, "TODO: codegen_whilestmt (project 4)\n");
+  //fprintf(stderr, "TODO: codegen_whilestmt (project 4)\n");
 }
 
 static void codegen_compoundstmt(T_stmt stmt) {
-  fprintf(stderr, "TODO: codegen_compoundstmt (remove this message when implemented).");
+//  fprintf(stderr, "TODO: codegen_compoundstmt (remove this message when implemented).");
+
+  // Generate the code for the body of the compound statement.
+  codegen_stmtlist(stmt->compoundstmt.stmtlist);
+
 }
 
 /* expressions */
@@ -307,11 +385,28 @@ static void codegen_identexpr(T_expr expr) {
 }
 
 static void codegen_callexpr(T_expr expr) {
-  fprintf(stderr, "TODO: codegen_callexpr (remove this message when implemented).");
+//  fprintf(stderr, "TODO: codegen_callexpr (remove this message when implemented).");
+
+  // Generate code for the parameter's expression.
+  codegen_expr(expr->callexpr.args->expr);
+
+  // Pass the parameter to the callee via the %rdi register.
+  POP("%rdi");
+
+  // Emit the call instruction to the function's identifier.
+  CALL(expr->callexpr.ident);
+
+  // Save the return value by pushing it onto the stack.
+  PUSH("%rax");
 }
 
 static void codegen_intexpr(T_expr expr) {
-  fprintf(stderr, "TODO: codegen_intexpr (remove this message when implemented).");
+//  fprintf(stderr, "TODO: codegen_intexpr (remove this message when implemented).");
+
+  // Move the immediate value into a register and push it onto the stack.
+  MOV_FROM_IMMEDIATE((int)expr->intexpr, "%rax");
+
+  PUSH("%rax");
 }
 
 static void codegen_charexpr(T_expr expr) {
@@ -329,11 +424,67 @@ static void codegen_arrayexpr(T_expr expr) {
 }
 
 static void codegen_unaryexpr(T_expr expr) {
-  fprintf(stderr, "TODO: codegen_unaryexpr\n");
+  //fprintf(stderr, "TODO: codegen_unaryexpr\n");
 }
 
 static void codegen_binaryexpr(T_expr expr) {
-  fprintf(stderr, "TODO: codegen_binaryexpr (remove this message when implemented).");
+//  fprintf(stderr, "TODO: codegen_binaryexpr (remove this message when implemented).");
+
+  // Generate code for the left and right operands of the current expression.
+  COMMENT("generate code for the left operand");
+  codegen_expr(expr->binaryexpr.left);
+  COMMENT("generate code for the right operand");
+  codegen_expr(expr->binaryexpr.right);
+
+  // Pop the result of each operand (the right one will be first, since it was pushed last).
+  COMMENT("pop the right operand");
+  POP("%rbx");
+  COMMENT("pop the left operand");
+  POP("%rax");
+
+  // Compute the result of the current expression.
+  switch(expr->binaryexpr.op){
+
+    case E_op_plus:
+      COMMENT("do the addition");
+      ADD("%rbx", "%rax");
+      break;
+
+    case E_op_minus:
+      COMMENT("do the subtraction");
+      SUB("%rbx", "%rax");
+      break;
+
+    case E_op_times:
+      COMMENT("do the multiplication");
+      IMUL("%rbx", "%rax");
+      break;
+
+    case E_op_divide:
+      COMMENT("do the division");
+      CDQ();
+      IDIV("%rbx");
+      // quotient is in %rax
+      break;
+
+    case E_op_mod:
+      COMMENT("do the remainder");
+      CDQ();
+      IDIV("%rbx");
+      // remainder is in %rdx
+      MOV("%rdx", "%rax");
+      break;
+
+    default:
+      fprintf(stderr, "ERROR: Unsupported binary operation.\n");
+      exit(1);
+
+   
+  }
+
+  // Push the result onto the stack.
+  COMMENT("push the expression result");
+  PUSH("%rax");
 }
 
 static void codegen_castexpr(T_expr expr) {
